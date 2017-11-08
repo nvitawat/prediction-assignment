@@ -1,0 +1,178 @@
+---
+title: "Prediction Assignment "
+author: "Vitawat Ngammuangpak"
+date: "10/27/2017"
+output: html_document
+---
+
+   The object of project want to predict the class of preformance by use data from accelerometers on belt, forearm, arm and dumbell of 6 participants.
+
+1. Import data
+
+   After import data, we found 19,622 obs. in pml_training data set and 20 obs. in pml_testing data set. Both data set have 160 varaibles and found some varaible have "#DIV/0!" and a lot of missing value that need to clean.     
+
+
+```{r echo=FALSE, message=FALSE}
+library(readr)
+# Import training data
+print("Importing training data..........")
+pml_training <- read_csv("~/Desktop/RData/Cousera/pml-training.csv")
+dim(pml_training)
+# Import testing data
+print("Importing testing data..........")
+pml_testing <- read_csv("~/Desktop/RData/Cousera/pml-testing.csv")
+dim(pml_testing)
+```
+
+2. Data cleaning
+
+   First of all, for convenience to use data in the next time, we merge 2 data set together, then remove unuse varaible such as X1, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window and num_window.
+  
+   Due to the data value problem, we manage as follow   
+   
+   - Change value "#DIV/0!" to NA
+   - Delete varaible where contain all NA 
+   - Delete varaible where contain all zero
+   - For varaible contain a lot of NA, we decide to remove varaible that  have NA more than 50% of total case.
+   - For missing value, replace missing value with mean of that varaible
+   
+   After clean the data, we have the new data set new_pml_training and new_pml_testing that ready to analysis.
+   
+   
+```{r echo=FALSE,  message=FALSE }
+# Merge data
+pml_training$type <- "train"
+pml_testing$type <- "test"
+pml_testing$classe <- "A"
+pml_testing$problem_id <- NULL
+
+total <- rbind(pml_training,pml_testing)
+
+# Delete reference varaible
+total$X1 <- NULL
+total$user_name <- NULL
+total$raw_timestamp_part_1 <- NULL
+total$raw_timestamp_part_2 <- NULL
+total$cvtd_timestamp <- NULL
+total$new_window <-NULL
+total$num_window <- NULL
+```
+```{r  message=FALSE }
+# Change value "#DIV/0!" to NA
+total[total =="#DIV/0!"] <- NA 
+
+# Remove varaible that contain all NA (NA column)
+total <- total[ ,colSums(is.na(total))<nrow(total)] 
+
+# Remove varible that contain all zero (zero value column)
+total <- total[ ,colSums(total != 0, na.rm = TRUE) > 0]  
+
+# Remove varible which contain NA more than 50 %
+total <- total[ ,colSums(is.na(total))/nrow(total) < 0.5]
+```
+```{r echo=FALSE,  message=FALSE }
+# Change "classe" from character to factor
+total$classe <- as.factor(total$classe)
+
+new_pml_training <- total[total$type == "train",]
+new_pml_training$type <- NULL
+new_pml_testing <- total[total$type == "test",]
+new_pml_testing$type <- NULL
+
+new_pml_training$magnet_dumbbell_z[which(is.na(new_pml_training$magnet_dumbbell_z))] <- mean(new_pml_training$magnet_dumbbell_z, na.rm = TRUE)
+new_pml_training$magnet_forearm_y[which(is.na(new_pml_training$magnet_forearm_y))] <- mean(new_pml_training$magnet_forearm_y, na.rm = TRUE)
+new_pml_training$magnet_forearm_z[which(is.na(new_pml_training$magnet_forearm_z))] <- mean(new_pml_training$magnet_forearm_z, na.rm = TRUE)
+
+```
+
+3. Find Model
+  
+   This project want to predict class of performance, used randonForest() and rpart() to find prediction model. Model selection will compare the accuracy value of each model. The step are as follows
+   
+   - Devided new_pml_training to trainData 70% and testData set 30%, use createDataPartition() from caret package, defined p = 0.70
+   - Use trainData to train model by using randomforest() and rpart().("classe" is dependent varaible, all the rest varaible is predictors)       
+   - Use each model predict "classe" on testData. 
+   - Then use confusionMatrix() find accuracy.
+   - Select prediction model by compare accurracy value.
+          
+          
+```{r  message=FALSE}
+library(caret)
+set.seed(12345)
+trainIndex <- createDataPartition(y=new_pml_training$classe, p=0.70, list=FALSE)
+trainData <- new_pml_training[trainIndex,]
+testData <- new_pml_training[-trainIndex,]
+```
+```{r  message=FALSE}
+library(rpart)
+set.seed(12345)
+model.rpart <- rpart(classe~., data= trainData)
+prediction.rpart <- predict(model.rpart, newdata= testData, type = "class")
+confus.rpart <- confusionMatrix(prediction.rpart, testData$classe)
+```
+```{r echo=FALSE, message=FALSE}
+print("----------Result of rpart() model----------")
+confus.rpart
+```
+```{r  message=FALSE}
+library(randomForest)
+set.seed(12345)
+model.rf <- randomForest(classe~.,data= trainData)
+prediction.rf <- predict(model.rf, newdata = testData)
+confus.rf <- confusionMatrix(prediction.rf, testData$classe)
+```
+```{r echo=FALSE, message=FALSE}
+print("----------Result of randonForest() model----------")
+confus.rf
+```
+
+From the result, show the randomForet() accuracy is 0.9932 while rpart() accuracy is 0.7720. RandomFoest() model is more accurate than rpart() model. So we decide to use model from ramdomForest() to predict. 
+   
+However, the accuracy and sensitively value of randomForest() model can calculate as follows 
+      
+    Total accuracy = (1673+1127+1017+950+1077)/(total case = 5885) = 0.9932 (99.32%)
+    Sensitively class A = (1673)/(1673+1) = 0.9994 (99.94%)
+    Sensitively class B = (1127)/(1127+9+3) = 0.9895 (98.95%)
+    Sensitively class C = (1016)/(1016+10) = 0.9903 (99.03%)
+    Sensitively class D = (951)/(950+13) = 0.9865 (98.65%)
+    Sensitively class E = (1077)/(1077+5) = 0.9954 (99.54%) 
+   
+   MeanDecreaseGini represents how each variable is useful/important for prediction. Comparing the MeanDecreasGini values of randonForest() model from high to low, found roll_belt is most useful/important varaible for prediction, followed by yaw_belt, magnet_dumbell_z, pitch_forearm while gyros_arm_z is the least useful/importance.
+   
+
+```{r echo=FALSE, message=FALSE}
+# Make new inportance graph
+library(ggplot2 )
+rf_Importance <- data.frame(rownames(model.rf$importance), model.rf$importance)
+names(rf_Importance) <- c("Factor", "MeanDecreaseGini")
+rf_Importance <- rf_Importance[order(rf_Importance$MeanDecreaseGini),]
+rownames(rf_Importance) <- 1:nrow(rf_Importance) 
+rf_Importance$Factor <- factor(rf_Importance$Factor, levels = rf_Importance$Factor)
+ggplot(rf_Importance,aes(x=rf_Importance$MeanDecreaseGini,y=rf_Importance$Factor)) + geom_point() +labs(title = "MeanDecreaseGini", x = "MeanDecreaseGini", y = "Varaible")
+```
+      
+Consider the error rate (OOB:out of bag, class A, class B, Class C, class D and class E) for prediction on the different ntree. We found when number of tree is increase,  each error rate will be decrease and close to zero . So if  define suitable number of tree , the model will get low error rate and high accurate to predict.
+
+
+```{r echo=FALSE, message=FALSE}
+plot(model.rf) 
+```
+       
+4. Prediction
+   
+   Use randomForest() model to predict 20 value on pml_testing
+   
+
+```{r echo= FALSE, message=FALSE}
+print("----- Predict 20 value use ramdomForest() -----")
+```
+```{r message=FALSE}
+prediction.rf.20 <- predict(model.rf, newdata = new_pml_testing)
+prediction.rf.20
+```
+
+
+
+
+
+
