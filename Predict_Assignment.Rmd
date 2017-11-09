@@ -1,0 +1,185 @@
+---
+title: 'Prediction Assignment '
+author: "Vitawat Ngammuangpak"
+date: "10/27/2017"
+output: html_document   
+---
+
+# 1. Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+# 2. Objective of project 
+
+The object want to predict the class of preformance by use data from accelerometers on belt, forearm, arm and dumbell of 6 participants that they were asked to perform barbell lifts correctly and incorrectly in 5 different ways.(predict  20 value on test set )  
+
+# 3. Work process
+ 
+  - Step 1 Data preparing: import and clean data
+  - Step 2 Fit model: rpart(), randomForest() and svm() 
+  - Step 3 Model selection:  compare accuray and select the highest accuracy.
+  - Step 4 Prediction
+    
+# 4. Data preparing
+     
+**4.1 Import data**  
+  
+Found 19,622 obs. in pml_training and 20 obs. in pml_testing. Both data set have 160 varaibles, found some varaible have "#DIV/0!" and a lot of missing.     
+
+```{r echo=FALSE, message=FALSE}
+library(readr)
+# Import training data
+print("Importing training data..........")
+pml_training <- read_csv("~/Desktop/RData/Cousera/pml-training.csv")
+dim(pml_training)
+# Import testing data
+print("Importing testing data..........")
+pml_testing <- read_csv("~/Desktop/RData/Cousera/pml-testing.csv")
+dim(pml_testing)
+```
+
+**4.2 Data cleaning**
+
+First of all, we merge 2 data set together, then remove unuse varaible such as X1, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window and num_window.
+  
+For some data problem, we manage as follows   
+   
+   - Change value "#DIV/0!" to NA
+   - Delete varaible where contain all NA 
+   - Delete varaible where contain all zero
+   - For varaible contain a lot of NA, we decide to remove varaible that  have NA more than 50% of total case.
+   - For missing value, replace missing value with mean of that varaible
+   
+   After clean the data, we have new_pml_training and new_pml_testing ready to analysis in the next step.
+   
+```{r echo=FALSE,  message=FALSE }
+# Merge data
+pml_training$type <- "train"
+pml_testing$type <- "test"
+pml_testing$classe <- "A"
+pml_testing$problem_id <- NULL
+
+total <- rbind(pml_training,pml_testing)
+
+# Delete reference varaible
+total$X1 <- NULL
+total$user_name <- NULL
+total$raw_timestamp_part_1 <- NULL
+total$raw_timestamp_part_2 <- NULL
+total$cvtd_timestamp <- NULL
+total$new_window <-NULL
+total$num_window <- NULL
+```
+```{r  message=FALSE }
+# Change value "#DIV/0!" to NA
+total[total =="#DIV/0!"] <- NA 
+
+# Remove varaible that contain all NA (NA column)
+total <- total[ ,colSums(is.na(total))<nrow(total)] 
+
+# Remove varible that contain all zero (zero value column)
+total <- total[ ,colSums(total != 0, na.rm = TRUE) > 0]  
+
+# Remove varible which contain NA more than 50 %
+total <- total[ ,colSums(is.na(total))/nrow(total) < 0.5]
+```
+```{r echo=FALSE,  message=FALSE }
+# Change "classe" from character to factor
+total$classe <- as.factor(total$classe)
+
+new_pml_training <- total[total$type == "train",]
+new_pml_training$type <- NULL
+new_pml_testing <- total[total$type == "test",]
+new_pml_testing$type <- NULL
+
+new_pml_training$magnet_dumbbell_z[which(is.na(new_pml_training$magnet_dumbbell_z))] <- mean(new_pml_training$magnet_dumbbell_z, na.rm = TRUE)
+new_pml_training$magnet_forearm_y[which(is.na(new_pml_training$magnet_forearm_y))] <- mean(new_pml_training$magnet_forearm_y, na.rm = TRUE)
+new_pml_training$magnet_forearm_z[which(is.na(new_pml_training$magnet_forearm_z))] <- mean(new_pml_training$magnet_forearm_z, na.rm = TRUE)
+
+```
+
+# 5. Fit Model
+  
+We used randonForest(), rpart() and svm() to find the prediction model. For each method, steps are as follow
+   
+   - Devided training data to trainData 70% and testData 30%, use createDataPartition() from caret package by defined p = 0.70
+   - Use trainData to find model (in function, use "classe" is dependent varaible, the rest varaible is predictors and  use defualt value for condition)       
+   - Use model to predict "classe" on testData. 
+   - Use confusionMatrix() to find accuracy value of model.
+          
+          
+```{r  message=FALSE}
+library(caret)
+set.seed(12345)
+trainIndex <- createDataPartition(y=new_pml_training$classe, p=0.70, list=FALSE)
+trainData <- new_pml_training[trainIndex,]
+testData <- new_pml_training[-trainIndex,]
+```
+```{r  message=FALSE}
+library(rpart)
+set.seed(12345)
+model.rpart <- rpart(classe~., data= trainData)
+prediction.rpart <- predict(model.rpart, newdata= testData, type = "class")
+confus.rpart <- confusionMatrix(prediction.rpart, testData$classe)
+```
+```{r echo=FALSE, message=FALSE}
+print("----------Result of rpart() model----------")
+confus.rpart
+```
+```{r  message=FALSE}
+library(randomForest)
+set.seed(12345)
+model.rf <- randomForest(classe~.,data= trainData)
+prediction.rf <- predict(model.rf, newdata = testData)
+confus.rf <- confusionMatrix(prediction.rf, testData$classe)
+```
+```{r echo=FALSE, message=FALSE}
+print("----------Result of randonForest() model----------")
+confus.rf
+```
+```{r  message=FALSE}
+library(e1071)
+set.seed(12345)
+model.svm <- svm(classe~ ., data = trainData)
+prediction.svm <- predict(model.svm, testData)
+confus.svm <- confusionMatrix(prediction.svm,testData$classe)
+```
+```{r echo=FALSE, message=FALSE}
+print("----------Result of svm() model----------")
+confus.svm
+```
+
+# 6. Model selection
+
+From the accuracy in confusionMatrix, the randomForest() accuracy value is 0.9932 while svm() is 0.9375 and rpart() is 0.7720. In this project, we decide to use ramdomForest() model.  
+   
+    - RandomForest()  accuracy = 0.9932
+    - Svm() accuracy = 0.9375
+    - Rpart() accuracy = 0.7220
+   
+However, the accuracy and sensitively value of randomForest() model can calculate as follows 
+      
+    - Total accuracy = (1673+1127+1017+950+1077)/(total case = 5885) = 0.9932 (99.32%)
+    - Sensitively class A = (1673)/(1673+1) = 0.9994 (99.94%)
+    - Sensitively class B = (1127)/(1127+9+3) = 0.9895 (98.95%)
+    - Sensitively class C = (1016)/(1016+10) = 0.9903 (99.03%)
+    - Sensitively class D = (951)/(950+13) = 0.9865 (98.65%)
+    - Sensitively class E = (1077)/(1077+5) = 0.9954 (99.54%) 
+   
+# 7. Prediction
+   
+   Use randomForest() model to predict 20 value by use pml_testing
+   
+```{r echo= FALSE, message=FALSE}
+print("----- Predict 20 value use ramdomForest() -----")
+prediction.rf.20 <- predict(model.rf, newdata = new_pml_testing)
+prediction.rf.20
+```
+
+
+
+
+
+
+
+
